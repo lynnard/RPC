@@ -16,9 +16,13 @@ typedef struct {
     char name[32];
 } fm_channel_t;
 
-#define channel_max 128
-#define local_channel "999"
-fm_channel_t channels[channel_max];
+#define CHANNEL_MAX 128
+#define LOCAL_CHANNEL "999"
+#define JING_TOP_CHANNEL "#top"
+#define JING_TOP_CHANNEL_NAME "Jing+ tops"
+#define JING_RAND_CHANNEL "#rand"
+#define JING_RAND_CHANNEL_NAME "Jing+ rand"
+fm_channel_t channels[CHANNEL_MAX];
 
 void read_channels()
 {
@@ -28,7 +32,7 @@ void read_channels()
     int fd;
     int i;
 
-    for (i = 0; i < channel_max; i++) {
+    for (i = 0; i < CHANNEL_MAX; i++) {
         channels[i].id = -1;
     }
 
@@ -76,11 +80,13 @@ char *get_local_channel_name() {
 void print_channels()
 {
     int i;
-    printf("%3s %s\n", "id", "name");
-    printf("%s %s\n", local_channel, get_local_channel_name());
-    for (i = 0; i < channel_max; i++) {
+    printf("%5s %s\n", "id", "name");
+    printf("%5s %s\n", LOCAL_CHANNEL, get_local_channel_name());
+    printf("%5s %s\n", JING_TOP_CHANNEL, JING_TOP_CHANNEL_NAME);
+    printf("%5s %s\n", JING_RAND_CHANNEL, JING_RAND_CHANNEL_NAME);
+    for (i = 0; i < CHANNEL_MAX; i++) {
         if (channels[i].id >= 0) {
-            printf("%3d %s\n", channels[i].id, channels[i].name);
+            printf("%5d %s\n", channels[i].id, channels[i].name);
         }
     }
 }
@@ -225,15 +231,17 @@ int main(int argc, char *argv[])
     if (strcmp(status, "error") != 0) {
         char *chl = strdup(json_object_get_string(json_object_object_get(obj, "channel")));
         long int cid;
-        if (strcmp(chl, local_channel) == 0) {
+        if (strcmp(chl, LOCAL_CHANNEL) == 0) {
             channel = get_local_channel_name();
+        } else if (strcmp(chl, JING_TOP_CHANNEL) == 0) {
+            channel = JING_TOP_CHANNEL_NAME;
         } else {
             // determining if it is an integer number
             char *address;
             cid = strtol(chl, &address, 10);
             if (*address == '\0') {
                 // this is valid number
-                if (cid < 0 || cid >= channel_max || channels[cid].id < 0) {
+                if (cid < 0 || cid >= CHANNEL_MAX || channels[cid].id < 0) {
                     channel = "未知兆赫";
                 } else {
                     channel = channels[cid].name;
