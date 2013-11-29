@@ -1,8 +1,12 @@
 SRC = $(wildcard *.c)
 OBJ = $(SRC:.c=.o)
 
-LIBS = -ljson-c -lcurl
-CFLAGS = -Wall
+ALL_LIBS = json-c    \
+		   libcurl   \
+
+CFLAGS += -Wall
+CFLAGS := $(shell pkg-config --cflags $(ALL_LIBS)) $(CFLAGS)
+LIBS := $(shell pkg-config --libs $(ALL_LIBS)) $(LIBS)
 
 all: fmc
 

@@ -13,18 +13,28 @@
 
 typedef struct {
     int id;
-    char name[32];
+    char *name;
 } fm_channel_t;
 
 #define CHANNEL_MAX 128
 #define LOCAL_CHANNEL "999"
 #define JING_TOP_CHANNEL "#top"
 #define JING_TOP_CHANNEL_NAME "Jing+ tops"
+#define JING_PSN_CHANNEL "#psn"
+#define JING_PSN_CHANNEL_NAME "Jing+ personal"
 #define JING_RAND_CHANNEL "#rand"
 #define JING_RAND_CHANNEL_NAME "Jing+ rand"
-fm_channel_t channels[CHANNEL_MAX];
 
-void read_channels()
+void free_channels(fm_channel_t *channels, int number) {
+    int i;
+    for (i=0; i<number; i++) {
+        free(channels[i].name);
+    }
+    free(channels);
+}
+
+// return 0 on success, -1 otherwise
+int read_channels(fm_channel_t **channels, int *number)
 {
     const char *file = "/tmp/fm_channels";
     char buf[4096];
@@ -32,9 +42,7 @@ void read_channels()
     int fd;
     int i;
 
-    for (i = 0; i < CHANNEL_MAX; i++) {
-        channels[i].id = -1;
-    }
+    int ret = -1;
 
     fd = open(file, O_RDONLY);
     if (fd >= 0) {
@@ -45,13 +53,15 @@ void read_channels()
             if (obj) {
                 array_list *channel_objs = json_object_get_array(json_object_object_get(obj, "channels"));
                 if (channel_objs) {
-                    for (i = 0; i < array_list_length(channel_objs); i++) {
+                    *number = array_list_length(channel_objs);
+                    *channels = (fm_channel_t *) malloc(*number * sizeof(fm_channel_t));
+                    for (i = 0; i < *number; i++) {
                         json_object *o = (json_object*) array_list_get_idx(channel_objs, i);
                         int id = json_object_get_int(json_object_object_get(o, "channel_id"));
-                        const char *name = json_object_get_string(json_object_object_get(o, "name"));
-                        channels[id].id = id;
-                        strcpy(channels[id].name, name);
+                        (*channels)[i].id = id;
+                        (*channels)[i].name = strdup(json_object_get_string(json_object_object_get(o, "name")));
                     }
+                    ret = 0;
                 }
                 json_object_put(obj);
             }
@@ -66,8 +76,9 @@ void read_channels()
         curl_easy_perform(curl);
         curl_easy_cleanup(curl);
         fclose(f);
-        read_channels();
+        ret = read_channels(channels, number);
     }
+    return ret;
 }
 
 char *get_local_channel_name() {
@@ -77,17 +88,16 @@ char *get_local_channel_name() {
     return login;
 }
 
-void print_channels()
+void print_channels(fm_channel_t *channels, int len)
 {
     int i;
     printf("%5s %s\n", "id", "name");
     printf("%5s %s\n", LOCAL_CHANNEL, get_local_channel_name());
     printf("%5s %s\n", JING_TOP_CHANNEL, JING_TOP_CHANNEL_NAME);
+    printf("%5s %s\n", JING_PSN_CHANNEL, JING_PSN_CHANNEL_NAME);
     printf("%5s %s\n", JING_RAND_CHANNEL, JING_RAND_CHANNEL_NAME);
-    for (i = 0; i < CHANNEL_MAX; i++) {
-        if (channels[i].id >= 0) {
-            printf("%5d %s\n", channels[i].id, channels[i].name);
-        }
+    for (i = 0; i < len; i++) {
+        printf("%5d %s\n", channels[i].id, channels[i].name);
     }
 }
 
@@ -136,7 +146,12 @@ void time_str(int time, char *buf)
 
 int main(int argc, char *argv[])
 {
-    read_channels();
+    int channels_len;
+    fm_channel_t* channels;
+    if (read_channels(&channels, &channels_len) != 0) {
+        printf("Failed to retrieve the channel list. Try again later.\n");
+        return -1;
+    }
 
     char *addr = "localhost";
     char *port = "10098";
@@ -173,7 +188,7 @@ int main(int argc, char *argv[])
     }
 
     if (strcmp(input_buf, "channels") == 0) {
-        print_channels();
+        print_channels(channels, channels_len);
         return 0;
     }
     else if (strcmp(input_buf, "help") == 0) {
@@ -227,7 +242,6 @@ int main(int argc, char *argv[])
     json_object *obj = json_tokener_parse(output_buf);
     char *status = obj ? strdup(json_object_get_string(json_object_object_get(obj, "status"))) : "error", 
          *channel = "", *artist = "", *title = "", pos[16] = "", len[16] = "", kbps[8] = "", *album = "", *cover = "", year[8] = "", *douban_url = "", *like = "";
-
     if (strcmp(status, "error") != 0) {
         char *chl = strdup(json_object_get_string(json_object_object_get(obj, "channel")));
         long int cid;
@@ -235,6 +249,8 @@ int main(int argc, char *argv[])
             channel = get_local_channel_name();
         } else if (strcmp(chl, JING_TOP_CHANNEL) == 0) {
             channel = JING_TOP_CHANNEL_NAME;
+        } else if (strcmp(chl, JING_PSN_CHANNEL) == 0) {
+            channel = JING_PSN_CHANNEL_NAME;
         } else {
             // determining if it is an integer number
             char *address;
@@ -318,6 +334,8 @@ int main(int argc, char *argv[])
         printf(info);
     }
     json_object_put(obj);
+    // free the channel list
+    free_channels(channels, channels_len);
 
     return 0;
 }
