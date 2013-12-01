@@ -16,7 +16,6 @@ typedef struct {
     char *name;
 } fm_channel_t;
 
-#define CHANNEL_MAX 128
 #define LOCAL_CHANNEL "999"
 #define JING_TOP_CHANNEL "#top"
 #define JING_TOP_CHANNEL_NAME "Jing+ tops"
@@ -257,10 +256,16 @@ int main(int argc, char *argv[])
             cid = strtol(chl, &address, 10);
             if (*address == '\0') {
                 // this is valid number
-                if (cid < 0 || cid >= CHANNEL_MAX || channels[cid].id < 0) {
+                // loop through the array to get the correct name for the channel
+                int i;
+                for (i=0; i<channels_len; i++) {
+                    if (channels[i].id == cid) {
+                        channel = channels[i].name;
+                        break;
+                    }
+                }
+                if (channel[0] == '\0') {
                     channel = "未知兆赫";
-                } else {
-                    channel = channels[cid].name;
                 }
             } else {
                 channel = chl;
