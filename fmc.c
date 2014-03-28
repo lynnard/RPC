@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include "downloader.h"
 
 typedef struct {
     int id;
@@ -32,6 +33,27 @@ void free_channels(fm_channel_t *channels, int number) {
     free(channels);
 }
 
+int read_channels_json(json_object *obj, fm_channel_t **channels, int *number) {
+    int ret = -1;
+    int i;
+    if (obj) {
+        array_list *channel_objs = json_object_get_array(json_object_object_get(obj, "channels"));
+        if (channel_objs) {
+            *number = array_list_length(channel_objs);
+            *channels = (fm_channel_t *) malloc(*number * sizeof(fm_channel_t));
+            for (i = 0; i < *number; i++) {
+                json_object *o = (json_object*) array_list_get_idx(channel_objs, i);
+                int id = json_object_get_int(json_object_object_get(o, "channel_id"));
+                (*channels)[i].id = id;
+                (*channels)[i].name = strdup(json_object_get_string(json_object_object_get(o, "name")));
+            }
+            ret = 0;
+        }
+        json_object_put(obj);
+    }
+    return ret;
+}
+
 // return 0 on success, -1 otherwise
 int read_channels(fm_channel_t **channels, int *number)
 {
@@ -39,7 +61,6 @@ int read_channels(fm_channel_t **channels, int *number)
     char buf[4096];
     size_t size;
     int fd;
-    int i;
 
     int ret = -1;
 
@@ -48,34 +69,23 @@ int read_channels(fm_channel_t **channels, int *number)
         memset(buf, 0, sizeof(buf));
         size = read(fd, buf, sizeof(buf));
         if (size > 0) {
-            json_object *obj = json_tokener_parse(buf);
-            if (obj) {
-                array_list *channel_objs = json_object_get_array(json_object_object_get(obj, "channels"));
-                if (channel_objs) {
-                    *number = array_list_length(channel_objs);
-                    *channels = (fm_channel_t *) malloc(*number * sizeof(fm_channel_t));
-                    for (i = 0; i < *number; i++) {
-                        json_object *o = (json_object*) array_list_get_idx(channel_objs, i);
-                        int id = json_object_get_int(json_object_object_get(o, "channel_id"));
-                        (*channels)[i].id = id;
-                        (*channels)[i].name = strdup(json_object_get_string(json_object_object_get(o, "name")));
-                    }
-                    ret = 0;
-                }
-                json_object_put(obj);
-            }
+            ret = read_channels_json(json_tokener_parse(buf), channels, number);
         }
         close(fd);
     }
     else {
-        FILE *f = fopen(file, "w");
-        CURL *curl = curl_easy_init();
-        curl_easy_setopt(curl, CURLOPT_URL, "http://www.douban.com/j/app/radio/channels?app_name=radio_desktop_win&version=100");
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, f);
-        curl_easy_perform(curl);
-        curl_easy_cleanup(curl);
-        fclose(f);
-        ret = read_channels(channels, number);
+        // download the content of the channel list
+        downloader_stack_t *s = stack_init();
+        downloader_t *d = stack_get_idle_downloader(s, dMem);
+        curl_easy_setopt(d->curl, CURLOPT_URL, "https://www.douban.com/j/app/radio/channels");
+        stack_perform_until_done(s, d);
+        ret = read_channels_json(json_tokener_parse(d->content.mbuf->data), channels, number);
+        if (ret == 0) {
+            FILE *f = fopen(file, "w");
+            // save to a file
+            fwrite(d->content.mbuf->data, 1, d->content.mbuf->length, f);
+            fclose(f);
+        }
     }
     return ret;
 }
