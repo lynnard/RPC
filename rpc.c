@@ -1,9 +1,11 @@
 #include <curl/curl.h>
-#include <json/json.h>
+#include <json-c/json.h>
 
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <pwd.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <unistd.h>
@@ -57,7 +59,10 @@ int read_channels_json(json_object *obj, fm_channel_t **channels, int *number) {
 // return 0 on success, -1 otherwise
 int read_channels(fm_channel_t **channels, int *number)
 {
-    const char *file = "/tmp/fm_channels";
+    struct passwd *pwd = getpwuid(getuid());
+    const char file[128];
+    strcpy(file, pwd->pw_dir);
+    strcat(file, "/.rpd/channels");
     char buf[4096];
     size_t size;
     int fd;
@@ -70,6 +75,9 @@ int read_channels(fm_channel_t **channels, int *number)
         size = read(fd, buf, sizeof(buf));
         if (size > 0) {
             ret = read_channels_json(json_tokener_parse(buf), channels, number);
+        } else {
+            *number = 0;
+            ret = 0;
         }
         close(fd);
     }
@@ -78,14 +86,15 @@ int read_channels(fm_channel_t **channels, int *number)
         downloader_stack_t *s = stack_init();
         downloader_t *d = stack_get_idle_downloader(s, dMem);
         curl_easy_setopt(d->curl, CURLOPT_URL, "https://www.douban.com/j/app/radio/channels");
+        curl_easy_setopt(d->curl, CURLOPT_CONNECTTIMEOUT, 10);
         stack_perform_until_done(s, d);
         ret = read_channels_json(json_tokener_parse(d->content.mbuf->data), channels, number);
-        if (ret == 0) {
-            FILE *f = fopen(file, "w");
-            // save to a file
-            fwrite(d->content.mbuf->data, 1, d->content.mbuf->length, f);
-            fclose(f);
-        }
+        int len = ret == 0 ? d->content.mbuf->length : 0;
+        ret = 0;
+        FILE *f = fopen(file, "w");
+        // save to a file
+        fwrite(d->content.mbuf->data, 1, len, f);
+        fclose(f);
     }
     return ret;
 }
@@ -112,9 +121,9 @@ void print_channels(fm_channel_t *channels, int len)
 
 void print_usage()
 {
-    printf("Usage: fmc [-a address] [-p port] [cmd] [argument]\n"
-           "       fmc help          - show this help infomation\n"
-           "       fmc info [format] - show current fmd information\n"
+    printf("Usage: rpc [-a address] [-p port] [cmd] [argument]\n"
+           "       rpc help          - show this help infomation\n"
+           "       rpc info [format] - show current RPD information\n"
            "                           if the format argument is given, the following specifier will be replaced accordingly\n"
            "                           %%a -- artist \n"
            "                           %%t -- song title \n"
@@ -129,20 +138,20 @@ void print_usage()
            "                           %%k -- kbps \n"
            "                           %%r -- rate (0 or 1) \n"
            "                           %%%% -- a literal %% \n"
-           "       fmc play          - start playback\n"
-           "       fmc pause         - pause playback\n"
-           "       fmc toggle        - toggle between play and pause\n"
-           "       fmc stop          - stop playback\n"
-           "       fmc skip/next     - skip current song\n"
-           "       fmc ban           - don't ever play current song again\n"
-           "       fmc rate          - mark current song as \"liked\"\n"
-           "       fmc unrate        - unmark current song\n"
-           "       fmc channels      - list all FM channels\n"
-           "       fmc webpage       - open the douban page using the browser defined in $BROWSER\n"
-           "       fmc setch <id>    - set channel through channel's id\n"
-           "       fmc kbps <kbps>   - set music quality to the specified kbps\n"
-           "       fmc launch        - tell fmd to restart\n"
-           "       fmc end           - tell fmd to quit\n"
+           "       rpc play          - start playback\n"
+           "       rpc pause         - pause playback\n"
+           "       rpc toggle        - toggle between play and pause\n"
+           "       rpc stop          - stop playback\n"
+           "       rpc skip/next     - skip current song\n"
+           "       rpc ban           - don't ever play current song again\n"
+           "       rpc rate          - mark current song as \"liked\"\n"
+           "       rpc unrate        - unmark current song\n"
+           "       rpc channels      - list all FM channels\n"
+           "       rpc webpage       - open the douban page using the browser defined in $BROWSER\n"
+           "       rpc setch <id>    - set channel through channel's id\n"
+           "       rpc kbps <kbps>   - set music quality to the specified kbps\n"
+           "       rpc launch        - tell RPD to restart\n"
+           "       rpc end           - tell RPD to quit\n"
           );
 }
 
@@ -205,8 +214,8 @@ int main(int argc, char *argv[])
         return 0;
     }
     else if (strcmp(input_buf, "launch") == 0) {
-        // forcefully restart fmd
-        system("pgrep fmd && /usr/local/bin/fmc end && sleep 30; /usr/local/bin/fmd");
+        // forcefully restart RPD
+        system("pgrep rpd && /usr/local/bin/rpc end && sleep 30; /usr/local/bin/rpd");
         return 0;
     } 
 
@@ -302,7 +311,7 @@ int main(int argc, char *argv[])
             else
                 printf("Unkown error with buf content %s\n", output_buf);
         } else {
-            printf("FMD %s - %s / %s kbps\n", strcmp(status, "play") == 0? "Playing": (strcmp(status, "pause") == 0? "Paused": "Stopped"), channel, kbps);
+            printf("RPD %s - %s / %s kbps\n", strcmp(status, "play") == 0? "Playing": (strcmp(status, "pause") == 0? "Paused": "Stopped"), channel, kbps);
 
             if (strcmp(status, "stop") != 0) {
                 printf("%s%s - %s\n%s / %s\n", 

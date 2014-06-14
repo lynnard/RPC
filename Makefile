@@ -8,15 +8,15 @@ CFLAGS += -Wall
 CFLAGS := $(shell pkg-config --cflags $(ALL_LIBS)) $(CFLAGS)
 LIBS := $(shell pkg-config --libs $(ALL_LIBS)) $(LIBS)
 
-all: fmc
+all: rpc
 
 debug: CFLAGS += -g
-debug: fmc
+debug: rpc
 
 release: CFLAGS += -O2
-release: fmc
+release: rpc
 
-fmc: ${OBJ}
+rpc: ${OBJ}
 	gcc ${CFLAGS} -o $@ $^ ${LIBS}
 
 %.o: %.c
