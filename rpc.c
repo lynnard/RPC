@@ -27,6 +27,26 @@ typedef struct {
 #define JING_RAND_CHANNEL "#rand"
 #define JING_RAND_CHANNEL_NAME "Jing+ rand"
 
+// utilities definitions
+char *escapech(char *buf, char c, char *str)
+{
+    int l = strlen(str) + 1;
+    // just needs to loop through and add backslash to the front
+    int i = 0, pi = 0;
+    while (i < l) {
+        char ch = str[i++];
+        if (ch == c) 
+            buf[pi++] = '\\';
+        buf[pi++] = ch;
+    }
+    return buf;
+}
+
+char *escapesh(char *buf, char *str) 
+{
+    return escapech(buf, '\'', str);
+}
+
 void free_channels(fm_channel_t *channels, int number) {
     int i;
     for (i=0; i<number; i++) {
@@ -100,10 +120,10 @@ int read_channels(fm_channel_t **channels, int *number)
 }
 
 char *get_local_channel_name() {
-    char *login = getlogin();
-    if (!login)
-        login = "Red-Heart";
-    return login;
+    /* char *login = getlogin(); */
+    /* if (!login) */
+    /* login = "Red-Heart"; */
+    return "Red-Heart";
 }
 
 void print_channels(fm_channel_t *channels, int len)
@@ -205,6 +225,7 @@ int main(int argc, char *argv[])
         strcpy(input_buf, "info");
     }
 
+    int open_webpage = 0;
     if (strcmp(input_buf, "channels") == 0) {
         print_channels(channels, channels_len);
         return 0;
@@ -218,6 +239,11 @@ int main(int argc, char *argv[])
         system("pgrep rpd && /usr/local/bin/rpc end && sleep 30; /usr/local/bin/rpd");
         return 0;
     } 
+    else if (strncmp(input_buf, "webpage", 7) == 0) {
+        // client told to trigger a webpage
+        strcpy(input_buf, "info");
+        open_webpage = 1;
+    }
 
     struct addrinfo hints, *results, *p;
     int sock_fd;
@@ -310,6 +336,25 @@ int main(int argc, char *argv[])
                 printf("%s\n", json_object_get_string(json_object_object_get(obj, "message")));
             else
                 printf("Unkown error with buf content %s\n", output_buf);
+        } else if (open_webpage) {
+            // open the designated webpage
+            char sh[1280];
+            // the url can become rather long after escaping
+            char url[1024];
+            if (escapesh(url, douban_url)[0] == '\0') {
+                // we need to make a custom url to open
+                sprintf(url, "%s %s", artist, album);
+                // first obtain a curl instance to escape the query
+                CURL *curl = curl_easy_init();
+                char *st = curl_easy_escape(curl, url, 0);
+                sprintf(url, "https://music.douban.com/subject_search?search_text=%s&cat=1003", st);
+                curl_free(st);
+                curl_easy_cleanup(curl);
+            }
+            /* printf("url is %s\n", url); */
+            sprintf(sh, "%s $'%s' &", "$BROWSER", url);
+            /* printf("cmd is %s\n", sh); */
+            system(sh);
         } else {
             printf("RPD %s - %s / %s kbps\n", strcmp(status, "play") == 0? "Playing": (strcmp(status, "pause") == 0? "Paused": "Stopped"), channel, kbps);
 
